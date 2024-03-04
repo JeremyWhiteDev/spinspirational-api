@@ -1,13 +1,14 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
-
-	"github.com/gin-gonic/gin"
 )
 
-// album represents data about a record album.
-type album struct {
+// Album represents data about a record Album.
+type Album struct {
     ID     string  `json:"id"`
     Title  string  `json:"title"`
     Artist string  `json:"artist"`
@@ -15,46 +16,71 @@ type album struct {
 }
 
 // albums slice to seed record album data.
-var albums = []album{
+var albums = []Album{
     {ID: "1", Title: "Blue Train", Artist: "John Coltrane", Price: 56.99},
     {ID: "2", Title: "Jeru", Artist: "Gerry Mulligan", Price: 17.99},
     {ID: "3", Title: "Sarah Vaughan and Clifford Brown", Artist: "Sarah Vaughan", Price: 39.99},
 }
 
 func main() {
-	router := gin.Default()
-	router.GET("/albums", getAlbums)
-	router.POST("/albums", postAlbums)
-	router.GET("/albums/:id", getAlbumById)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/album", getAlbums)
+	mux.HandleFunc("/album/{id}", getAlbumById)
+	mux.HandleFunc("POST /album", postAlbum)
 
-	router.Run("localhost:8080")
-}
-
-// getAlbums responds with the list of all albums as JSON.
-func getAlbums(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, albums)
-}
-
-// postAlbums adds an album from JSON received in the request body.
-func postAlbums(c *gin.Context) {
-	var newAlbum album
-
-	// bind the 
-	if err := c.BindJSON(&newAlbum); err != nil {
-		return
+	if err := http.ListenAndServe(":8080", mux); err != nil {
+		panic(err)
 	}
-	albums = append(albums, newAlbum)
-	c.IndentedJSON(http.StatusCreated, newAlbum)
+
 }
 
-func getAlbumById(c *gin.Context) {
-	id := c.Param("id")
+func getAlbums(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	albumJson, err := json.Marshal(albums)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprint(w, string(albumJson))
+}
+
+func getAlbumById(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
 
 	for _, a := range albums {
 		if a.ID == id {
-			c.IndentedJSON(http.StatusOK, a)
+			albumJson, err := json.Marshal(a)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Fprint(w, string(albumJson))
 			return
 		}
 	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
+	http.Error(w, "Resource not found", http.StatusNotFound)
+}
+
+func postAlbum(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	defer r.Body.Close() 
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusBadRequest)
+		return
+	}
+
+	var newAlbum Album
+
+	err = json.Unmarshal(body, &newAlbum)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	albums = append(albums, newAlbum)
+
+	newAlbumJson, err := json.Marshal(newAlbum)
+	if err != nil {
+		http.Error(w, "Error parsing JSON body", http.StatusInternalServerError)
+		return
+	}
+
+	fmt.Fprint(w, string(newAlbumJson))
 }
